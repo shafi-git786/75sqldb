@@ -1,0 +1,45 @@
+name: "Terraform-plan"
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/stage/**
+      # - main
+    
+    # paths: 
+    #   - 'sql/**.tfvars'
+      
+  pull_request:
+    branches:
+      - main
+
+jobs:
+
+  stage:
+    
+    # if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/feature/tf-inf' && contains(github.event.head_commit.message, 'updated config-stage.tfvars') }}
+    permissions:   #Permission is required if enabling TFSEC == true
+      actions: read
+      contents: read
+      security-events: write
+      id-token: write
+    uses: krogertechnology/seventy5-iac/.github/workflows/template-plan.yml@feature/cap7513-dev
+    with:
+      path: ./sql                 
+      tf_version: latest                 
+      az_resource_group: rg-terraform-centralus     
+      az_storage_acc: stsatseventy5tfstate  
+      az_container_name: tfstate
+      tf_key: seventy5-stage
+      use_oidc: true                 
+      tf_vars_file: config-stage.tfvars    
+      enable_TFSEC: true
+      gh_environment: stage
+      state_subscription: 460a7c49-dc6c-40b3-9a69-d9327b876486              
+    secrets:
+      arm_client_id: ${{ secrets.ARM_CLIENT_ID }}                  
+      arm_subscription_id: ${{ secrets.ARM_SUBSCRIPTION_ID }} 
+      arm_tenant_id: ${{ secrets.ARM_TENANT_ID }} 
+      arm_azure_credentials: ${{secrets.ARM_AZURE_CREDENTIALS}}
+      KT_INTERAL_REPO_KEY: ${{secrets.KT_INTERAL_REPO_KEY}}
+      # arm_state_subscription_id: ${{secrets.ARM_STATE_SUBSCRIPTION_ID}}
