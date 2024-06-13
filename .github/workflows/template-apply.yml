@@ -1,0 +1,158 @@
+### Reusable workflow to download terraform artifact built by `az_tf_plan` and apply the artifact/plan ###
+name: "Apply_TF_Plan"
+on:
+  workflow_call:
+    inputs:
+      path:
+        description: 'Specifies the path of the root terraform module.'
+        required: true
+        type: string
+      tf_version:
+        description: 'Specifies version of Terraform to use. e.g: 1.1.0 Default=latest.'
+        required: false
+        type: string
+        default: latest
+      az_resource_group:
+        description: 'Specifies the Azure Resource Group where the backend storage account is hosted.'
+        required: true
+        type: string
+      az_storage_acc:
+        description: 'Specifies the Azure Storage Account where the backend state is hosted.'
+        required: true
+        type: string
+      az_container_name:
+        description: 'Specifies the Azure Storage account container where backend Terraform state is hosted.'
+        required: true
+        type: string
+      tf_key:
+        description: 'Specifies the Terraform state file name. Workflow artifact will be the same name.'
+        required: true
+        type: string
+      use_oidc:
+        description: 'OIDC'
+        required: false
+        type: boolean
+      gh_environment:
+        description: 'Specifies the GitHub deployment environment.'
+        required: false
+        type: string
+        default: null
+      tf_vars_file:
+        description: 'Specifies the Terraform TFVARS file.'
+        required: true
+        type: string
+      enable_TFSEC:
+        description: '(Optional) Enables TFSEC IaC scans and code quality checks on Terraform configurations'
+        required: false
+        type: boolean
+        default: false
+      state_subscription:
+        required: true
+        type: string
+    secrets:
+      arm_client_id:
+        description: 'Specifies the Azure ARM CLIENT ID.'
+        required: true
+      arm_client_secret:
+        description: 'Specifies the Azure ARM CLIENT SECRET.'
+        required: false
+      arm_subscription_id:
+        description: 'Specifies the Azure ARM SUBSCRIPTION ID.'
+        required: true
+      arm_tenant_id:
+        description: 'Specifies the Azure ARM TENANT ID.'
+        required: true
+      arm_azure_credentials:
+        description: 'Specifies the Azure ARM_AZURE_CREDENTIALS.'
+        required: true
+      KT_INTERAL_REPO_KEY:
+        required: true
+        description: "KT_INTERAL_REPO_KEY"
+
+permissions:
+ actions: read
+ contents: read
+ id-token: write
+
+jobs:
+  apply-plan:
+    runs-on: [self-hosted, aks]
+    environment: ${{ inputs.gh_environment }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.path }}
+    env:
+      STORAGE_ACCOUNT: ${{ inputs.az_storage_acc }}
+      CONTAINER_NAME: ${{ inputs.az_container_name }}
+      RESOURCE_GROUP: ${{ inputs.az_resource_group }}
+      TF_KEY: ${{ inputs.tf_key }}.tfstate
+      TF_VARS: ${{ inputs.tf_vars_file }}
+      USE_OIDC : ${{ inputs.use_oidc }}
+      SUBSCRIPTION: ${{ inputs.state_subscription }}
+      ###AZURE Client details###
+      ARM_CLIENT_ID: ${{ secrets.arm_client_id }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.arm_subscription_id }}
+      ARM_TENANT_ID: ${{ secrets.arm_tenant_id }}
+      ARM_AZURE_CREDENTIALS: ${{secrets.arm_azure_credentials}}
+  
+    steps:
+
+      
+      - name: Download Artifact
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: ${{ inputs.gh_environment }}-plan-pipeline.yml
+          name: ${{ inputs.tf_key }}
+          path: ${{ inputs.path }}
+
+      - name: Decompress TF Plan artifact
+        run: unzip ${{ inputs.tf_key }}.zip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Generate Token
+        uses: krogertechnology/grant-internal-repo-access@v1.2.8
+        with:
+          kt-internal-repo-key: ${{ secrets.KT_INTERAL_REPO_KEY }}
+          export-environment-variable: true # defaults to true
+          override-git-config: true # defaults to true
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.tf_version }}
+
+      - name: Terraform Init
+        id: init
+        run: terraform init --backend-config="subscription_id=$SUBSCRIPTION" --backend-config="storage_account_name=$STORAGE_ACCOUNT" --backend-config="container_name=$CONTAINER_NAME" --backend-config="resource_group_name=$RESOURCE_GROUP" --backend-config="key=$TF_KEY" --backend-config="use_oidc=$USE_OIDC"
+        env:
+          ARM_CLIENT_ID: ${{ secrets.arm_client_id }}
+          ARM_TENANT_ID: ${{ secrets.arm_tenant_id }}
+          ARM_USE_OIDC: true
+
+      - name: Terraform Refresh
+        id: refresh
+        run: terraform refresh --var-file=$TF_VARS
+        env:
+          ARM_CLIENT_ID: ${{ secrets.arm_client_id }}
+          ARM_TENANT_ID: ${{ secrets.arm_tenant_id }}
+          ARM_USE_OIDC: true
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan --var-file=$TF_VARS --out=plan.tfplan
+        env:
+          ARM_CLIENT_ID: ${{ secrets.arm_client_id }}
+          ARM_TENANT_ID: ${{ secrets.arm_tenant_id }}
+          ARM_USE_OIDC: true        
+        continue-on-error: true
+
+      - name: Terraform Apply
+        run: terraform apply --var-file=$TF_VARS -auto-approve
+        env:
+          ARM_CLIENT_ID: ${{ secrets.arm_client_id }}
+          ARM_TENANT_ID: ${{ secrets.arm_tenant_id }}
+          ARM_USE_OIDC: true
