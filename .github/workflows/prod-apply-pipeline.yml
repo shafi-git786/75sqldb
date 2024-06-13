@@ -1,0 +1,33 @@
+name: "Terraform-apply"
+on:
+  workflow_dispatch:
+
+
+jobs:
+  Deploy_Prod:
+    # if: ${{ always() && github.event_name == 'pull_request' || (github.event_name == 'push' && !contains( github.event.head_commit.message, 'updated config-prod.tfvars')) }}
+    #use 'updated config-stage.tfvars' commite message to run job
+    permissions:   #Permission is required if enabling TFSEC == true
+      actions: read
+      contents: read
+      security-events: write
+      id-token: write
+    uses: krogertechnology/seventy5-iac/.github/workflows/template-apply.yml@release/v1.0.0
+    with:
+      path: ./sql                   
+      tf_version: latest                
+      az_resource_group: rg-terraform-centralus       
+      az_storage_acc: stsatseventy5tfstate    
+      az_container_name: tfstate 
+      tf_key: seventy5-prod
+      use_oidc: true                 
+      tf_vars_file: config-prod.tfvars
+      enable_TFSEC: true                
+      gh_environment: prod  
+      state_subscription: 460a7c49-dc6c-40b3-9a69-d9327b876486 
+    secrets:
+      arm_client_id: ${{ secrets.ARM_CLIENT_ID }}                  
+      arm_subscription_id: ${{ secrets.ARM_SUBSCRIPTION_ID }} 
+      arm_tenant_id: ${{ secrets.ARM_TENANT_ID }} 
+      arm_azure_credentials: ${{secrets.ARM_AZURE_CREDENTIALS}}
+      KT_INTERAL_REPO_KEY: ${{secrets.KT_INTERAL_REPO_KEY}}
